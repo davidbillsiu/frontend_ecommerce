@@ -1,0 +1,59 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Produto — CasaNobre</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="css/style.css"><script src="js/config.js"></script><script src="js/app.js"></script></head><body>
+<main class="container" id="conteudo"><div class="loading">Carregando…</div></main>
+<script>
+renderHeader('loja');
+const id = new URLSearchParams(location.search).get('id');
+let P, V;
+const estrelas = (n) => '★'.repeat(Math.round(n)) + '☆'.repeat(5 - Math.round(n));
+function montar() {
+  const img = (P.imagens.find((i) => i.variacao_sku_id === V.id) || P.imagens[0])?.url_imagem || '';
+  const desc = V.preco_de && Number(V.preco_de) > Number(V.preco_por);
+  const sem = V.estoque_atual <= 0;
+  $('#conteudo').innerHTML = `
+  <p class="hint" style="margin-top:16px"><a href="index.html">Loja</a> › ${esc(P.categoria.nome)} › ${esc(P.nome)}</p>
+  <div class="detail">
+    <div class="main"><img src="${esc(img)}" alt="${esc(P.nome)}"></div>
+    <div>
+      <span class="hint">${esc(P.marca.nome)} · ${P.ambientes.map((a) => esc(a.nome)).join(', ')}</span>
+      <h1>${esc(P.nome)}</h1>
+      <div class="price" style="font-size:1.8rem">${brl(V.preco_por)}${desc ? `<span class="old">${brl(V.preco_de)}</span>` : ''}</div>
+      <p class="hint">no Pix: ${brl(V.preco_por * 0.95)} (5% OFF)</p>
+      <label>Cor / acabamento</label>
+      <div class="opts">${P.variacoes.map((v) => `<button class="opt ${v.id === V.id ? 'on' : ''}" ${v.estoque_atual <= 0 ? 'title="Sem estoque"' : ''} onclick="escolher(${v.id})">${esc(v.cor_acabamento)}${v.revestimento_tecido ? ' · ' + esc(v.revestimento_tecido) : ''}</button>`).join('')}</div>
+      ${sem ? '<div class="alert err">Esta variação está sem estoque.</div>' : V.estoque_atual <= 3 ? `<div class="alert warn">Últimas ${V.estoque_atual} unidades!</div>` : `<p class="hint">${V.estoque_atual} unidades em estoque</p>`}
+      ${P.requer_montagem ? `<label class="check"><input type="checkbox" id="montagem"> Contratar montagem profissional (+ ${brl(MONTAGEM_VALOR)} por unidade)</label>` : '<p class="hint">Produto não requer montagem.</p>'}
+      <div style="display:flex;gap:10px;margin-top:14px;align-items:center">
+        <div class="qty"><button onclick="mudarQtd(-1)">−</button><span id="q">1</span><button onclick="mudarQtd(1)">+</button></div>
+        <button class="btn" style="flex:1" onclick="comprar()">${sem ? 'Indisponível' : 'Adicionar ao carrinho'}</button>
+      </div>
+      <h3 style="margin-top:26px">Sobre o produto</h3>
+      <p>${esc(P.descricao_detalhada || '')}</p>
+      <dl class="specs">
+        <dt>Material</dt><dd>${esc(P.material_principal)}</dd>
+        <dt>Dimensões (A×L×P)</dt><dd>${V.altura_cm} × ${V.largura_cm} × ${V.profundidade_cm} cm</dd>
+        <dt>Peso</dt><dd>${V.peso_kg} kg</dd><dt>Volumes</dt><dd>${V.quantidade_volumes}</dd>
+        <dt>Garantia</dt><dd>${P.garantia_meses} meses</dd><dt>SKU</dt><dd>${esc(V.sku_codigo)}</dd>
+        <dt>Prazo de produção</dt><dd>${P.marca.prazo_producao_dias ? P.marca.prazo_producao_dias + ' dias' : 'Pronta entrega'}</dd>
+      </dl>
+    </div>
+  </div>
+  <section class="panel"><h2>Avaliações</h2><div id="aval" class="loading">Carregando…</div></section>`;
+  carregarAval(); $('#q').dataset.v = 1;
+}
+let qtd = 1;
+function mudarQtd(d) { qtd = Math.max(1, Math.min(qtd + d, Math.max(V.estoque_atual, 1))); $('#q').textContent = qtd; }
+function escolher(vid) { V = P.variacoes.find((v) => v.id === vid); qtd = 1; montar(); }
+function comprar() { Carrinho.adicionar(itemDeCarrinho(P, V, $('#montagem')?.checked || false), qtd); }
+async function carregarAval() {
+  try {
+    const r = await api(`/produtos/${P.id}/avaliacoes`);
+    $('#aval').className = '';
+    $('#aval').innerHTML = r.total ? `<p><span class="stars">${estrelas(r.media)}</span> ${r.media.toFixed(1)} (${r.total})</p>` + r.avaliacoes.map((a) => `<div style="border-top:1px solid var(--line);padding:10px 0"><span class="stars">${estrelas(a.nota_geral)}</span> <b>${esc(a.usuario?.nome_completo)}</b>${a.nota_facilidade_montagem ? `<span class="hint"> · facilidade de montagem ${a.nota_facilidade_montagem}/5</span>` : ''}<p style="margin:4px 0">${esc(a.comentario || '')}</p></div>`).join('') : '<p class="hint">Ainda sem avaliações.</p>';
+  } catch { $('#aval').textContent = ''; }
+}
+(async () => {
+  try { P = await api('/produtos/' + id); V = P.variacoes.find((v) => v.estoque_atual > 0) || P.variacoes[0]; montar(); }
+  catch (e) { $('#conteudo').innerHTML = `<div class="empty">${esc(e.message)}<br><a href="index.html">Voltar à loja</a></div>`; }
+})();
+renderFooter();
+</script></body></html>

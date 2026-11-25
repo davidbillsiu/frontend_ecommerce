@@ -1,0 +1,57 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Carrinho — CasaNobre</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="css/style.css"><script src="js/config.js"></script><script src="js/app.js"></script></head><body>
+<main class="container">
+  <h1 style="margin-top:24px">Carrinho de compras</h1>
+  <div class="cart-layout"><section class="panel" id="itens"></section><aside class="panel sum" id="resumo" style="align-self:start"></aside></div>
+</main>
+<script>
+renderHeader('carrinho');
+async function sincronizar() { // revalida preço/estoque com o servidor
+  const l = Carrinho.itens(); if (!l.length) return;
+  try {
+    const ids = [...new Set(l.map((i) => i.produto_id))];
+    const prods = await Promise.all(ids.map((id) => api('/produtos/' + id).catch(() => null)));
+    const novo = [];
+    for (const i of l) {
+      const p = prods.find((x) => x && x.id === i.produto_id); const v = p?.variacoes.find((x) => x.id === i.variacao_sku_id);
+      if (!v) { toast(`"${i.nome}" não está mais disponível.`, 'err'); continue; }
+      i.preco = Number(v.preco_por); i.estoque = v.estoque_atual;
+      if (v.estoque_atual <= 0) { toast(`"${i.nome}" ficou sem estoque e foi removido.`, 'err'); continue; }
+      if (i.quantidade > v.estoque_atual) { i.quantidade = v.estoque_atual; toast(`Quantidade de "${i.nome}" ajustada ao estoque.`, 'err'); }
+      novo.push(i);
+    }
+    Carrinho.salvar(novo);
+  } catch { /* offline: usa dados locais */ }
+}
+function desenhar() {
+  const l = Carrinho.itens();
+  if (!l.length) { $('#itens').innerHTML = '<div class="empty">Seu carrinho está vazio.<br><br><a class="btn" href="index.html">Continuar comprando</a></div>'; $('#resumo').style.display = 'none'; return; }
+  $('#resumo').style.display = '';
+  $('#itens').innerHTML = l.map((i) => `<div class="item">
+    <img src="${esc(i.imagem)}" alt="">
+    <div><b>${esc(i.nome)}</b><div class="hint">${esc(i.cor)} · ${brl(i.preco)} un.</div>
+      ${i.requer_montagem ? `<label class="check" style="font-size:.82rem;margin-top:6px"><input type="checkbox" ${i.montagem ? 'checked' : ''} onchange="montagem(${i.variacao_sku_id},this.checked)"> Montagem (+ ${brl(MONTAGEM_VALOR)}/un.)</label>` : ''}</div>
+    <div class="iright" style="text-align:right"><div class="qty"><button onclick="qtd(${i.variacao_sku_id},-1)">−</button><span>${i.quantidade}</span><button onclick="qtd(${i.variacao_sku_id},1)">+</button></div>
+      <div style="margin:6px 0"><b>${brl(i.preco * i.quantidade + (i.montagem ? MONTAGEM_VALOR * i.quantidade : 0))}</b></div>
+      <button class="btn sec sm" onclick="rem(${i.variacao_sku_id})">Remover</button></div></div>`).join('');
+  const sub = l.reduce((a, i) => a + i.preco * i.quantidade, 0), mont = l.reduce((a, i) => a + (i.montagem ? MONTAGEM_VALOR * i.quantidade : 0), 0);
+  $('#resumo').innerHTML = `<h3>Resumo</h3><div><span>Produtos</span><span>${brl(sub)}</span></div><div><span>Montagem</span><span>${brl(mont)}</span></div>
+    <div class="hint">Frete e descontos (cupom/Pix) são calculados na finalização.</div>
+    <div class="total"><span>Subtotal</span><span>${brl(sub + mont)}</span></div>
+    <button class="btn block" style="margin-top:14px" onclick="finalizar()">Finalizar compra</button>
+    <a class="btn sec block" style="margin-top:8px" href="index.html">Continuar comprando</a>`;
+}
+function qtd(id, d) {
+  const l = Carrinho.itens(), i = l.find((x) => x.variacao_sku_id === id), n = i.quantidade + d;
+  if (n < 1) return rem(id);
+  if (n > i.estoque) return alert(`Estoque insuficiente. Disponível: ${i.estoque} un.`);
+  i.quantidade = n; Carrinho.salvar(l); desenhar();
+}
+function montagem(id, on) { const l = Carrinho.itens(); l.find((x) => x.variacao_sku_id === id).montagem = on; Carrinho.salvar(l); desenhar(); }
+function rem(id) { Carrinho.remover(id); desenhar(); }
+function finalizar() { // checkout é rota privada
+  if (!Sessao.logado()) { toast('Faça login para finalizar a compra.'); setTimeout(() => (location.href = 'login.html?next=checkout.html'), 700); return; }
+  location.href = 'checkout.html';
+}
+desenhar(); sincronizar().then(desenhar);
+renderFooter();
+</script></body></html>

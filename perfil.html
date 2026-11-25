@@ -1,0 +1,51 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Meu perfil — CasaNobre</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="css/style.css"><script src="js/config.js"></script><script src="js/app.js"></script></head><body>
+<main class="container" style="max-width:860px">
+  <h1 style="margin-top:24px">Meu perfil</h1>
+  <section class="panel"><h3>Dados cadastrais</h3>
+    <form id="f"><div class="row">
+      <div class="field"><label>Nome completo</label><input id="nome" required></div>
+      <div class="field"><label>E-mail</label><input id="email" type="email" required></div>
+      <div class="field"><label>CPF</label><input id="cpf" required><span class="err" id="e-cpf"></span></div>
+      <div class="field"><label>Telefone</label><input id="tel"></div>
+      <div class="field"><label>Nova senha (opcional)</label><input id="senha" type="password" autocomplete="new-password"></div>
+    </div><p class="err" id="erro"></p>
+    <button class="btn">Salvar (PUT)</button> <button type="button" class="btn sec" id="btn-patch">Salvar só telefone (PATCH)</button></form></section>
+  <section class="panel"><h3>Endereços</h3><div id="enderecos"></div>
+    <details style="margin-top:12px"><summary class="btn sec sm" style="display:inline-flex">+ Novo endereço</summary>
+      <form id="fe" style="margin-top:12px"><div class="row">
+        <div class="field"><label>CEP</label><input id="cep" placeholder="00000-000" required></div>
+        <div class="field" style="grid-column:span 2"><label>Rua</label><input id="logradouro" required></div></div>
+        <div class="row"><div class="field"><label>Número</label><input id="numero" required></div><div class="field"><label>Complemento</label><input id="complemento"></div><div class="field"><label>Bairro</label><input id="bairro" required></div></div>
+        <div class="row"><div class="field"><label>Cidade</label><input id="cidade" required></div><div class="field"><label>UF</label><input id="estado" maxlength="2" required></div><div class="field"><label>Apelido</label><input id="apelido" placeholder="Casa, Apto…"></div></div>
+        <label class="check"><input type="checkbox" id="principal"> Definir como principal</label><br><button class="btn">Salvar endereço</button></form></details></section>
+</main>
+<script>
+if (exigirLogin()) iniciar();
+renderHeader('perfil');
+let U;
+aplicarMascara($('#cpf'), maskCPF); aplicarMascara($('#tel'), maskTel); aplicarMascara($('#cep'), maskCEP);
+async function iniciar() {
+  U = await api('/usuarios/perfil', { auth: true });
+  $('#nome').value = U.nome_completo; $('#email').value = U.email; $('#cpf').value = U.cpf_cnpj ? maskCPF(U.cpf_cnpj) : ''; $('#tel').value = U.telefone ? maskTel(U.telefone) : '';
+  listarEnd(U.enderecos);
+}
+const listarEnd = (l) => $('#enderecos').innerHTML = l.map((e) => `<div style="display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid var(--line);padding:10px 0"><div><b>${esc(e.apelido || 'Endereço')}</b> ${e.principal ? '<span class="status s-pago">principal</span>' : ''}<br>${esc(e.logradouro)}, ${esc(e.numero)} ${esc(e.complemento || '')} — ${esc(e.bairro)}, ${esc(e.cidade)}/${esc(e.estado)} · ${esc(e.cep)}</div><div style="white-space:nowrap">${e.principal ? '' : `<button class="btn sec sm" onclick="tornar(${e.id})">Principal</button> `}<button class="btn sec sm" onclick="del(${e.id})">Excluir</button></div></div>`).join('');
+const recarregar = async () => listarEnd((await api('/usuarios/perfil', { auth: true })).enderecos);
+async function tornar(id) { await api('/enderecos/' + id, { method: 'PATCH', body: { principal: true }, auth: true }); recarregar(); }
+async function del(id) { if (!confirm('Excluir endereço?')) return; try { await api('/enderecos/' + id, { method: 'DELETE', auth: true }); recarregar(); } catch (e) { toast(e.message, 'err'); } }
+$('#f').addEventListener('submit', async (e) => {
+  e.preventDefault(); $('#erro').textContent = '';
+  if (!validarCPF($('#cpf').value)) return ($('#e-cpf').textContent = 'CPF inválido');
+  $('#e-cpf').textContent = '';
+  const body = { nome_completo: $('#nome').value, email: $('#email').value, cpf: $('#cpf').value, telefone: $('#tel').value };
+  if ($('#senha').value) body.senha = $('#senha').value;
+  try { const u = await api('/usuarios/' + U.id, { method: 'PUT', body, auth: true }); Sessao.salvar(Sessao.token(), { ...Sessao.usuario(), nome_completo: u.nome_completo }); toast('Dados atualizados', 'ok'); } catch (err) { $('#erro').textContent = err.message; }
+});
+$('#btn-patch').onclick = async () => { try { await api('/usuarios/' + U.id, { method: 'PATCH', body: { telefone: $('#tel').value }, auth: true }); toast('Telefone atualizado', 'ok'); } catch (e) { toast(e.message, 'err'); } };
+$('#cep').addEventListener('input', () => { if ($('#cep').value.length === 9) buscarCEP($('#cep'). value, { logradouro: $('#logradouro'), bairro: $('#bairro'), cidade: $('#cidade'), estado: $('#estado'), numero: $('#numero') }); });
+$('#fe').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try { await api('/enderecos', { method: 'POST', auth: true, body: { cep: $('#cep').value, logradouro: $('#logradouro').value, numero: $('#numero').value, complemento: $('#complemento').value, bairro: $('#bairro').value, cidade: $('#cidade').value, estado: $('#estado').value, apelido: $('#apelido').value, principal: $('#principal').checked } }); $('#fe').reset(); recarregar(); toast('Endereço salvo', 'ok'); } catch (err) { toast(err.message, 'err'); }
+});
+renderFooter();
+</script></body></html>

@@ -1,0 +1,53 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CasaNobre Móveis — Loja</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="css/style.css"><script src="js/config.js"></script><script src="js/app.js"></script></head><body>
+<main class="container">
+  <section class="hero">
+    <div><span class="tag">Coleção Novembro</span><h1>Móveis que transformam a sua casa</h1><p>Sofás, mesas, camas e muito mais, com entrega e montagem profissional. Pague no Pix e ganhe 5% de desconto.</p><a href="#catalogo" class="btn" style="background:#fff;color:#2b3d33">Ver catálogo</a></div>
+    <img id="hero-img" src="img/produtos/sofa-retratil-nuvem-cinza.svg" alt="Sofá retrátil em destaque">
+  </section>
+  <section class="promos">
+    <div class="promo"><b>Frete grátis</b>em compras acima de R$ 5.000</div>
+    <div class="promo"><b>Montagem profissional</b>agende na hora da compra</div>
+    <div class="promo"><b>Cupom BEMVINDO10</b>10% na primeira compra (mín. R$ 500)</div>
+  </section>
+  <h2 id="catalogo">Catálogo</h2>
+  <div class="chips" id="ambientes"></div>
+  <div class="filters">
+    <input id="busca" type="search" placeholder="Buscar móvel pelo nome…" aria-label="Buscar">
+    <select id="categoria" aria-label="Categoria"><option value="">Todas as categorias</option></select>
+    <select id="ordem" aria-label="Ordenar"><option value="nome">Nome (A-Z)</option><option value="menor">Menor preço</option><option value="maior">Maior preço</option></select>
+  </div>
+  <div id="lista" class="grid"><div class="loading">Carregando produtos…</div></div>
+</main>
+<script>
+renderHeader('loja');
+let todos = [], ambienteSel = '';
+async function carregar() {
+  const params = new URLSearchParams();
+  if ($('#busca').value.trim()) params.set('nome', $('#busca').value.trim());
+  if ($('#categoria').value) params.set('categoria', $('#categoria').value);
+  if (ambienteSel) params.set('ambiente', ambienteSel);
+  try { todos = await api('/produtos/buscar?' + params); desenhar(); }
+  catch (e) { $('#lista').innerHTML = `<div class="alert err" style="grid-column:1/-1">${esc(e.message)}</div>`; }
+}
+function desenhar() {
+  const o = $('#ordem').value, l = [...todos];
+  if (o === 'menor') l.sort((a, b) => a.preco_min - b.preco_min); if (o === 'maior') l.sort((a, b) => b.preco_min - a.preco_min);
+  $('#lista').innerHTML = l.length ? l.map(cardProduto).join('') : '<div class="empty" style="grid-column:1/-1">Nenhum produto encontrado.</div>';
+}
+async function adicionarRapido(id) {
+  const p = todos.find((x) => x.id === id); const v = p.variacoes[0];
+  Carrinho.adicionar(itemDeCarrinho(p, v));
+}
+(async () => {
+  try {
+    const [cats, ambs] = await Promise.all([api('/categorias'), api('/ambientes')]);
+    $('#categoria').insertAdjacentHTML('beforeend', cats.filter((c) => c.ativa).map((c) => `<option value="${c.id}">${c.categoria_pai_id ? '— ' : ''}${esc(c.nome)}</option>`).join(''));
+    $('#ambientes').innerHTML = `<button class="chip on" data-id="">Todos os ambientes</button>` + ambs.map((a) => `<button class="chip" data-id="${a.id}">${esc(a.nome)}</button>`).join('');
+    $$('#ambientes .chip').forEach((b) => b.onclick = () => { $$('#ambientes .chip').forEach((x) => x.classList.remove('on')); b.classList.add('on'); ambienteSel = b.dataset.id; carregar(); });
+  } catch (e) { /* lista ainda carrega abaixo */ }
+  carregar();
+})();
+let t; $('#busca').addEventListener('input', () => { clearTimeout(t); t = setTimeout(carregar, 300); });
+$('#categoria').onchange = carregar; $('#ordem').onchange = desenhar;
+renderFooter();
+</script></body></html>

@@ -1,0 +1,54 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Finalizar compra — CasaNobre</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="css/style.css"><script src="js/config.js"></script><script src="js/app.js"></script></head><body>
+<main class="container">
+  <h1 style="margin-top:24px">Finalizar compra</h1>
+  <div class="cart-layout">
+    <section>
+      <div class="panel"><h3>1. Endereço de entrega</h3><div id="enderecos"></div><a href="perfil.html" class="hint">Gerenciar endereços</a></div>
+      <div class="panel"><h3>2. Cupom de desconto</h3><div style="display:flex;gap:8px"><input id="cupom" placeholder="Ex.: BEMVINDO10" style="text-transform:uppercase"><button class="btn sec" onclick="simular()">Aplicar</button></div><p class="err" id="e-cupom"></p></div>
+      <div class="panel"><h3>3. Pagamento</h3>
+        <div class="row"><div class="field"><label for="metodo">Forma de pagamento</label><select id="metodo"><option value="pix">Pix (5% OFF)</option><option value="cartao_credito">Cartão de crédito</option><option value="boleto">Boleto</option></select></div>
+        <div class="field" id="box-parc" style="display:none"><label for="parcelas">Parcelas</label><select id="parcelas"></select></div></div>
+        <p class="hint">Pagamento simulado (sem gateway real): cartão é aprovado na hora; Pix/boleto ficam aguardando pagamento.</p></div>
+    </section>
+    <aside class="panel sum" style="align-self:start"><h3>Resumo</h3><div id="resumo"></div><p class="err" id="erro"></p><button class="btn block" id="btn" style="margin-top:12px" onclick="confirmar()">Confirmar pedido</button></aside>
+  </div>
+</main>
+<script>
+if (exigirLogin()) iniciar();
+renderHeader('carrinho');
+function corpo() {
+  const sel = document.querySelector('input[name=end]:checked');
+  return { itens: Carrinho.itens().map((i) => ({ variacao_sku_id: i.variacao_sku_id, quantidade: i.quantidade, incluir_montagem: !!i.montagem })),
+    endereco_entrega_id: sel ? Number(sel.value) : null, cupom_codigo: $('#cupom').value.trim() || undefined, pagamento: { metodo: $('#metodo').value, parcelas: Number($('#parcelas').value) || 1 } };
+}
+async function iniciar() {
+  if (!Carrinho.itens().length) { location.href = 'carrinho.html'; return; }
+  try {
+    const ends = await api('/enderecos', { auth: true });
+    $('#enderecos').innerHTML = ends.map((e, n) => `<label class="check" style="padding:8px 0;font-weight:400"><input type="radio" name="end" value="${e.id}" ${e.principal || n === 0 ? 'checked' : ''}><span><b>${esc(e.apelido || 'Endereço')}</b> — ${esc(e.logradouro)}, ${esc(e.numero)} ${esc(e.complemento || '')} · ${esc(e.bairro)} · ${esc(e.cidade)}/${esc(e.estado)} · CEP ${esc(e.cep)}</span></label>`).join('') || '<p class="err">Cadastre um endereço no seu perfil.</p>';
+    $$('input[name=end]').forEach((r) => r.onchange = simular);
+  } catch (e) { toast(e.message, 'err'); }
+  simular();
+}
+$('#metodo').onchange = () => { $('#box-parc').style.display = $('#metodo').value === 'cartao_credito' ? '' : 'none'; simular(); };
+let totalAtual = 0;
+async function simular() {
+  $('#e-cupom').textContent = ''; $('#erro').textContent = '';
+  if (!Carrinho.itens().length) return;
+  try {
+    const r = await api('/pedidos/simular', { method: 'POST', body: corpo(), auth: true });
+    totalAtual = r.valor_total;
+    $('#resumo').innerHTML = `<div><span>Produtos</span><span>${brl(r.subtotal_produtos)}</span></div><div><span>Frete</span><span>${brl(r.valor_frete)}</span></div><div><span>Montagem</span><span>${brl(r.valor_montagem)}</span></div>`
+      + r.descontos.map((d) => `<div class="disc"><span>${esc(d.origem)}</span><span>− ${brl(d.valor)}</span></div>`).join('') + `<div class="total"><span>Total</span><span>${brl(r.valor_total)}</span></div>`;
+    const n = $('#parcelas'); const cur = n.value; n.innerHTML = [...Array(Math.min(12, Math.max(1, Math.floor(r.valor_total / 100)))).keys()].map((i) => `<option value="${i + 1}">${i + 1}x de ${brl(r.valor_total / (i + 1))} sem juros</option>`).join(''); if (cur) n.value = cur;
+  } catch (e) { ($('#cupom').value && /upom|ínimo/.test(e.message) ? $('#e-cupom') : $('#erro')).textContent = e.message; }
+}
+async function confirmar() {
+  $('#btn').disabled = true; $('#erro').textContent = '';
+  try {
+    const p = await api('/pedidos', { method: 'POST', body: corpo(), auth: true });
+    Carrinho.limpar(); alert(`Pedido ${p.numero_pedido} realizado com sucesso!`); location.href = 'pedidos.html';
+  } catch (e) { $('#erro').textContent = e.message; $('#btn').disabled = false; }
+}
+renderFooter();
+</script></body></html>

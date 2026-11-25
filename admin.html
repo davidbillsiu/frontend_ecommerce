@@ -1,0 +1,154 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Painel — CasaNobre</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css"><script src="js/config.js"></script><script src="js/app.js"></script>
+<script src="js/chart.umd.js"></script></head><body>
+<main class="container">
+  <h1 style="margin-top:24px">Painel administrativo</h1>
+  <div class="tabs" id="tabs"></div>
+  <div id="view"></div>
+</main>
+
+<div class="modal-bg" id="modal"><div class="modal"><div id="modal-body"></div></div></div>
+
+<script>
+if (!exigirLogin(['admin', 'logistica'])) throw new Error('acesso negado');
+renderHeader('');
+const EH_ADMIN = Sessao.usuario().tipo_perfil === 'admin';
+const TABS = [['vendas', 'Movimentação de Vendas'], ['estoque', 'Estoque'], ...(EH_ADMIN ? [['produtos', 'Cadastro de Produtos'], ['cupons', 'Cupons'], ['avaliacoes', 'Avaliações']] : [])];
+let charts = [], catalogo = { categorias: [], marcas: [], ambientes: [] };
+const call = (p, o = {}) => api(p, { auth: true, ...o });
+const fechar = () => $('#modal').classList.remove('open');
+const abrir = (html) => { $('#modal-body').innerHTML = html; $('#modal').classList.add('open'); };
+const apagarCharts = () => { charts.forEach((c) => c.destroy()); charts = []; };
+
+function tab() {
+  const k = (location.hash || '#vendas').slice(1); const t = TABS.find((x) => x[0] === k) ? k : 'vendas';
+  $('#tabs').innerHTML = TABS.map(([id, nome]) => `<button class="tab ${id === t ? 'on' : ''}" onclick="location.hash='${id}'">${nome}</button>`).join('');
+  apagarCharts(); $('#view').innerHTML = '<div class="loading">Carregando…</div>';
+  ({ vendas, estoque, produtos, cupons, avaliacoes }[t])().catch((e) => ($('#view').innerHTML = `<div class="alert err">${esc(e.message)}</div>`));
+}
+window.addEventListener('hashchange', tab);
+
+/* ===== VENDAS: KPIs + 2 gráficos (Chart.js) + tabela de pedidos ===== */
+async function vendas() {
+  const [rv, ped] = await Promise.all([call('/relatorios/vendas'), call('/pedidos')]);
+  const ticket = rv.totais.pedidos ? rv.totais.faturamento / rv.totais.pedidos : 0;
+  $('#view').innerHTML = `
+  <div class="kpis"><div class="kpi"><small>Faturamento</small><b>${brl(rv.totais.faturamento)}</b></div><div class="kpi"><small>Pedidos válidos</small><b>${rv.totais.pedidos}</b></div><div class="kpi"><small>Ticket médio</small><b>${brl(ticket)}</b></div></div>
+  <div class="charts"><div class="panel"><h3>Faturamento mensal</h3><div class="chartbox"><canvas id="c1"></canvas></div></div>
+  <div class="panel"><h3>Vendas por categoria (unidades)</h3><div class="chartbox"><canvas id="c2"></canvas></div></div></div>
+  <section class="panel"><h3>Pedidos (movimentação de vendas)</h3><div class="table-wrap"><table><thead><tr><th>Pedido</th><th>Data</th><th>Cliente</th><th>Total</th><th>Status</th><th>Alterar</th></tr></thead><tbody>
+  ${ped.map((p) => `<tr><td><b>${esc(p.numero_pedido)}</b></td><td>${dataBR(p.criado_em)}</td><td>${esc(p.usuario?.nome_completo)}</td><td>${brl(p.valor_total)}</td><td><span class="status s-${p.status_pedido}">${STATUS[p.status_pedido]}</span></td>
+  <td><select onchange="mudarStatus(${p.id},this.value)" style="min-height:34px;padding:4px 8px">${Object.entries(STATUS).map(([k, v]) => `<option value="${k}" ${k === p.status_pedido ? 'selected' : ''}>${v}</option>`).join('')}</select></td></tr>`).join('') || '<tr><td colspan="6" class="empty">Sem pedidos.</td></tr>'}
+  </tbody></table></div></section>`;
+  const cor = ['#b5532f', '#3f5a4a', '#c9850b', '#5a6fa0', '#8a6a4f', '#7a5a8c'];
+  charts.push(new Chart($('#c1'), { type: 'bar', data: { labels: rv.faturamento_mensal.map((m) => m.mes), datasets: [{ label: 'Faturamento (R$)', data: rv.faturamento_mensal.map((m) => m.faturamento), backgroundColor: '#b5532f' }] }, options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } } }));
+  charts.push(new Chart($('#c2'), { type: 'bar', data: { labels: rv.vendas_por_categoria.map((c) => c.categoria), datasets: [{ label: 'Unidades vendidas', data: rv.vendas_por_categoria.map((c) => c.quantidade), backgroundColor: cor }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } } }));
+}
+async function mudarStatus(id, status_pedido) { try { await call(`/pedidos/${id}/status`, { method: 'PATCH', body: { status_pedido } }); toast('Status atualizado', 'ok'); tab(); } catch (e) { toast(e.message, 'err'); tab(); } }
+
+/* ===== ESTOQUE ===== */
+async function estoque() {
+  const [lista, rel] = await Promise.all([call('/estoque'), call('/relatorios/estoque')]);
+  $('#view').innerHTML = `
+  <div class="charts"><div class="panel"><h3>Unidades em estoque por categoria</h3><div class="chartbox"><canvas id="c3"></canvas></div></div>
+  <div class="panel"><h3>Estoque crítico (≤ 3)</h3>${rel.criticos.length ? `<table><thead><tr><th>SKU</th><th>Produto</th><th>Qtd</th></tr></thead><tbody>${rel.criticos.map((c) => `<tr><td>${esc(c.sku_codigo)}</td><td>${esc(c.produto)} <span class="hint">${esc(c.cor_acabamento)}</span></td><td><span class="status ${c.estoque_atual === 0 ? 's-cancelado' : 's-aguardando_pagamento'}">${c.estoque_atual}</span></td></tr>`).join('')}</tbody></table>` : '<p class="hint">Nenhum item crítico.</p>'}</div></div>
+  <section class="panel"><h3>Movimentação de estoque</h3><div class="table-wrap"><table><thead><tr><th>SKU</th><th>Produto</th><th>Acabamento</th><th>Estoque</th><th>Ações</th></tr></thead><tbody>
+  ${lista.map((v) => `<tr><td>${esc(v.sku_codigo)}</td><td>${esc(v.produto.nome)}</td><td>${esc(v.cor_acabamento)}</td><td><b>${v.estoque_atual}</b></td>
+  <td style="white-space:nowrap"><button class="btn sm green" onclick="mov(${v.id},'entrada')">+ Entrada</button> <button class="btn sm sec" onclick="mov(${v.id},'saida')">− Saída</button> <button class="btn sm sec" onclick="ajuste(${v.id},${v.estoque_atual})">Ajustar</button></td></tr>`).join('')}</tbody></table></div></section>`;
+  charts.push(new Chart($('#c3'), { type: 'bar', data: { labels: rel.por_categoria.map((c) => c.categoria), datasets: [{ label: 'Unidades', data: rel.por_categoria.map((c) => c.unidades), backgroundColor: '#3f5a4a' }] }, options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } } }));
+}
+async function mov(id, tipo) { const q = prompt(`Quantidade de ${tipo}:`, '1'); if (!q) return; try { await call('/estoque', { method: 'POST', body: { variacao_sku_id: id, tipo, quantidade: Number(q) } }); toast('Estoque atualizado', 'ok'); tab(); } catch (e) { toast(e.message, 'err'); } }
+async function ajuste(id, atual) { const q = prompt('Novo estoque (inventário):', atual); if (q === null) return; try { await call('/estoque/' + id, { method: 'PUT', body: { estoque_atual: Number(q) } }); toast('Estoque ajustado', 'ok'); tab(); } catch (e) { toast(e.message, 'err'); } }
+
+/* ===== PRODUTOS (CRUD completo) ===== */
+async function produtos() {
+  const [lista, cats, marcas, ambs] = await Promise.all([call('/produtos?todos=1'), api('/categorias'), api('/marcas'), api('/ambientes')]);
+  catalogo = { categorias: cats, marcas, ambientes: ambs }; window._prods = lista;
+  $('#view').innerHTML = `<section class="panel"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><h3 style="margin:0">Produtos cadastrados (${lista.length})</h3><button class="btn" onclick="formProduto()">+ Novo produto</button></div>
+  <div class="table-wrap" style="margin-top:12px"><table><thead><tr><th></th><th>Nome</th><th>Categoria</th><th>Marca</th><th>A partir de</th><th>Estoque</th><th>Ativo</th><th>Ações</th></tr></thead><tbody>
+  ${lista.map((p) => `<tr><td><img src="${esc(p.imagem_principal || '')}" alt="" style="width:56px;border-radius:6px;background:#efe9e1" onerror="this.style.visibility='hidden'"></td><td><b>${esc(p.nome)}</b><div class="hint">${p.variacoes.length} variação(ões)</div></td><td>${esc(p.categoria.nome)}</td><td>${esc(p.marca.nome)}</td><td>${brl(p.preco_min)}</td><td>${p.estoque_total}</td>
+  <td><span class="status ${p.ativo ? 's-entregue' : 's-cancelado'}">${p.ativo ? 'Sim' : 'Não'}</span></td>
+  <td style="white-space:nowrap"><button class="btn sm sec" onclick="formProduto(${p.id})">Editar</button> <button class="btn sm sec" onclick="alternar(${p.id},${!p.ativo})">${p.ativo ? 'Inativar' : 'Ativar'}</button> <button class="btn sm danger" onclick="excluir(${p.id})">Excluir</button></td></tr>`).join('')}</tbody></table></div></section>`;
+}
+const opt = (l, sel, f = (x) => x.nome) => l.map((x) => `<option value="${x.id}" ${x.id === sel ? 'selected' : ''}>${esc(f(x))}</option>`).join('');
+function linhaVar(v = {}) {
+  return `<div class="vrow" data-id="${v.id || ''}"><div class="row">
+    <div class="field"><label>SKU *</label><input class="v-sku" value="${esc(v.sku_codigo || '')}" ${v.id ? 'readonly' : ''}></div>
+    <div class="field"><label>Cor / acabamento *</label><input class="v-cor" value="${esc(v.cor_acabamento || '')}"></div>
+    <div class="field"><label>Revestimento</label><input class="v-tec" value="${esc(v.revestimento_tecido || '')}"></div></div><div class="row">
+    <div class="field"><label>Preço de (riscado)</label><input class="v-de" type="number" step="0.01" min="0" value="${v.preco_de ?? ''}"></div>
+    <div class="field"><label>Preço por *</label><input class="v-por" type="number" step="0.01" min="0" value="${v.preco_por ?? ''}"></div>
+    <div class="field"><label>Estoque *</label><input class="v-est" type="number" min="0" value="${v.estoque_atual ?? 0}"></div></div><div class="row">
+    <div class="field"><label>Altura cm *</label><input class="v-alt" type="number" step="0.01" value="${v.altura_cm ?? ''}"></div>
+    <div class="field"><label>Largura cm *</label><input class="v-lar" type="number" step="0.01" value="${v.largura_cm ?? ''}"></div>
+    <div class="field"><label>Profund. cm *</label><input class="v-pro" type="number" step="0.01" value="${v.profundidade_cm ?? ''}"></div>
+    <div class="field"><label>Peso kg *</label><input class="v-peso" type="number" step="0.01" value="${v.peso_kg ?? ''}"></div>
+    <div class="field"><label>Volumes</label><input class="v-vol" type="number" min="1" value="${v.quantidade_volumes ?? 1}"></div></div>
+    <div class="field"><label>URL da imagem desta variação</label><input class="v-img" value="${esc(v._img || '')}" placeholder="img/produtos/arquivo.svg ou https://…"></div>
+    ${v.id ? '' : '<button type="button" class="btn sm sec" onclick="this.closest(\'.vrow\').remove()">Remover variação</button>'}</div>`;
+}
+function formProduto(id) {
+  const p = id ? window._prods.find((x) => x.id === id) : { variacoes: [], ambientes: [], requer_montagem: true, garantia_meses: 3, ativo: true };
+  const vars = (p.variacoes.length ? p.variacoes : [{}]).map((v) => ({ ...v, _img: (p.imagens || []).find((i) => i.variacao_sku_id === v.id)?.url_imagem || '' }));
+  abrir(`<h2>${id ? 'Editar' : 'Novo'} produto</h2><form id="fp">
+    <div class="row"><div class="field"><label>Nome *</label><input id="p-nome" value="${esc(p.nome || '')}" required></div>
+    <div class="field"><label>Material principal *</label><input id="p-mat" value="${esc(p.material_principal || '')}" required></div></div>
+    <div class="row"><div class="field"><label>Categoria *</label><select id="p-cat">${opt(catalogo.categorias, p.categoria_id)}</select></div>
+    <div class="field"><label>Marca *</label><select id="p-marca">${opt(catalogo.marcas, p.marca_id)}</select></div>
+    <div class="field"><label>Garantia (meses)</label><input id="p-gar" type="number" min="0" value="${p.garantia_meses}"></div></div>
+    <div class="field"><label>Descrição</label><textarea id="p-desc" rows="3">${esc(p.descricao_detalhada || '')}</textarea></div>
+    <div class="field"><label>Ambientes</label><div style="display:flex;gap:12px;flex-wrap:wrap">${catalogo.ambientes.map((a) => `<label class="check"><input type="checkbox" class="p-amb" value="${a.id}" ${p.ambientes.some((x) => x.id === a.id) ? 'checked' : ''}> ${esc(a.nome)}</label>`).join('')}</div></div>
+    <div class="row"><label class="check"><input type="checkbox" id="p-mont" ${p.requer_montagem ? 'checked' : ''}> Requer montagem</label><label class="check"><input type="checkbox" id="p-ativo" ${p.ativo ? 'checked' : ''}> Ativo na loja</label></div>
+    <h3 style="margin-top:14px">Variações (SKU)</h3><div id="vars">${vars.map(linhaVar).join('')}</div>
+    <button type="button" class="btn sm sec" onclick="$('#vars').insertAdjacentHTML('beforeend', linhaVar())">+ Adicionar variação</button>
+    <p class="err" id="p-erro"></p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px"><button class="btn">${id ? 'Salvar (PUT)' : 'Cadastrar (POST)'}</button>${id ? `<button type="button" class="btn sec" onclick="salvarParcial(${id})">Salvar só ativo/garantia (PATCH)</button>` : ''}<button type="button" class="btn sec" onclick="fechar()">Fechar</button></div></form>`);
+  $('#fp').onsubmit = (e) => { e.preventDefault(); salvarProduto(id); };
+}
+async function salvarProduto(id) {
+  const n = (c, r) => (r.querySelector(c).value === '' ? undefined : Number(r.querySelector(c).value));
+  const variacoes = $$('#vars .vrow').map((r) => ({ id: r.dataset.id ? Number(r.dataset.id) : undefined, sku_codigo: r.querySelector('.v-sku').value.trim(), cor_acabamento: r.querySelector('.v-cor').value.trim(), revestimento_tecido: r.querySelector('.v-tec').value || null, preco_de: n('.v-de', r) ?? null, preco_por: n('.v-por', r), estoque_atual: n('.v-est', r), altura_cm: n('.v-alt', r), largura_cm: n('.v-lar', r), profundidade_cm: n('.v-pro', r), peso_kg: n('.v-peso', r), quantidade_volumes: n('.v-vol', r) || 1, _img: r.querySelector('.v-img').value.trim() }));
+  const body = { nome: $('#p-nome').value.trim(), material_principal: $('#p-mat').value.trim(), categoria_id: Number($('#p-cat').value), marca_id: Number($('#p-marca').value), garantia_meses: Number($('#p-gar').value) || 0, descricao_detalhada: $('#p-desc').value, requer_montagem: $('#p-mont').checked, ativo: $('#p-ativo').checked, ambientes_ids: $$('.p-amb:checked').map((c) => Number(c.value)), variacoes: variacoes.map(({ _img, ...v }) => v) };
+  try {
+    let salvo = await call(id ? '/produtos/' + id : '/produtos', { method: id ? 'PUT' : 'POST', body });
+    // imagens: associa cada URL informada à variação correspondente (por SKU)
+    const imagens = variacoes.map((v, i) => ({ v, i })).filter((x) => x.v._img).map(({ v }, ordem) => ({ url_imagem: v._img, alt_text: `${body.nome} - ${v.cor_acabamento}`, variacao_sku_id: salvo.variacoes.find((s) => s.sku_codigo === v.sku_codigo)?.id || null, ordem_exibicao: ordem }));
+    if (imagens.length) await call('/produtos/' + salvo.id, { method: 'PATCH', body: { imagens } });
+    toast('Produto salvo', 'ok'); fechar(); tab();
+  } catch (e) { $('#p-erro').textContent = e.message; }
+}
+async function salvarParcial(id) { try { await call('/produtos/' + id, { method: 'PATCH', body: { ativo: $('#p-ativo').checked, garantia_meses: Number($('#p-gar').value) } }); toast('Atualizado (PATCH)', 'ok'); fechar(); tab(); } catch (e) { $('#p-erro').textContent = e.message; } }
+async function alternar(id, ativo) { try { await call('/produtos/' + id, { method: 'PATCH', body: { ativo } }); tab(); } catch (e) { toast(e.message, 'err'); } }
+async function excluir(id) { if (!confirm('Excluir produto? Se já houver vendas, ele será apenas inativado.')) return; try { const r = await call('/produtos/' + id, { method: 'DELETE' }); toast(r.mensagem, 'ok'); tab(); } catch (e) { toast(e.message, 'err'); } }
+
+/* ===== CUPONS ===== */
+async function cupons() {
+  const l = await call('/cupons');
+  $('#view').innerHTML = `<section class="panel"><h3>Novo cupom</h3><form id="fc" class="row" style="align-items:end">
+    <div class="field"><label>Código</label><input id="c-cod" required style="text-transform:uppercase"></div>
+    <div class="field"><label>Tipo</label><select id="c-tipo"><option value="percentual">Percentual (%)</option><option value="valor_fixo">Valor fixo (R$)</option><option value="frete_gratis">Frete grátis</option></select></div>
+    <div class="field"><label>Valor</label><input id="c-val" type="number" step="0.01" min="0" value="0"></div>
+    <div class="field"><label>Pedido mínimo</label><input id="c-min" type="number" step="0.01" min="0" value="0"></div>
+    <div class="field"><label>Válido até</label><input id="c-fim" type="date" required></div>
+    <div class="field"><label>Limite de usos (vazio = ilimitado)</label><input id="c-lim" type="number" min="1"></div>
+    <div class="field"><button class="btn block">Criar cupom</button></div></form></section>
+  <section class="panel"><div class="table-wrap"><table><thead><tr><th>Código</th><th>Tipo</th><th>Valor</th><th>Mín.</th><th>Validade</th><th>Usos</th><th></th></tr></thead><tbody>
+  ${l.map((c) => `<tr><td><b>${esc(c.codigo)}</b></td><td>${esc(c.tipo_desconto)}</td><td>${c.tipo_desconto === 'percentual' ? c.valor_desconto + '%' : brl(c.valor_desconto)}</td><td>${brl(c.valor_minimo_pedido)}</td><td>${dataBR(c.validade_inicio)} → ${dataBR(c.validade_fim)}</td><td>${c.usos_atuais}${c.limite_usos ? '/' + c.limite_usos : ''}</td><td><button class="btn sm danger" onclick="delCupom(${c.id})">Excluir</button></td></tr>`).join('')}</tbody></table></div></section>`;
+  $('#fc').onsubmit = async (e) => { e.preventDefault(); try { await call('/cupons', { method: 'POST', body: { codigo: $('#c-cod').value.trim().toUpperCase(), tipo_desconto: $('#c-tipo').value, valor_desconto: Number($('#c-val').value), valor_minimo_pedido: Number($('#c-min').value), validade_inicio: new Date().toISOString(), validade_fim: $('#c-fim').value + 'T23:59:59', limite_usos: $('#c-lim').value ? Number($('#c-lim').value) : null } }); toast('Cupom criado', 'ok'); tab(); } catch (er) { toast(er.message, 'err'); } };
+}
+async function delCupom(id) { if (!confirm('Excluir cupom?')) return; try { await call('/cupons/' + id, { method: 'DELETE' }); tab(); } catch (e) { toast('Cupom já usado em pedidos: não pode ser excluído.', 'err'); } }
+
+/* ===== AVALIAÇÕES (moderação) ===== */
+async function avaliacoes() {
+  const l = await call('/avaliacoes');
+  $('#view').innerHTML = `<section class="panel"><h3>Moderação de avaliações</h3><div class="table-wrap"><table><thead><tr><th>Produto</th><th>Cliente</th><th>Nota</th><th>Comentário</th><th>Status</th><th></th></tr></thead><tbody>
+  ${l.map((a) => `<tr><td>${esc(a.produto?.nome)}</td><td>${esc(a.usuario?.nome_completo)}</td><td class="stars">${'★'.repeat(a.nota_geral)}</td><td>${esc(a.comentario || '—')}</td><td><span class="status ${a.aprovado ? 's-entregue' : 's-aguardando_pagamento'}">${a.aprovado ? 'Publicada' : 'Pendente'}</span></td>
+  <td style="white-space:nowrap">${a.aprovado ? '' : `<button class="btn sm green" onclick="aprovar(${a.id})">Aprovar</button> `}<button class="btn sm danger" onclick="delAval(${a.id})">Excluir</button></td></tr>`).join('') || '<tr><td colspan="6" class="empty">Nenhuma avaliação.</td></tr>'}</tbody></table></div></section>`;
+}
+async function aprovar(id) { await call('/avaliacoes/' + id, { method: 'PATCH', body: { aprovado: true } }); tab(); }
+async function delAval(id) { if (confirm('Excluir avaliação?')) { await call('/avaliacoes/' + id, { method: 'DELETE' }); tab(); } }
+
+$('#modal').addEventListener('mousedown', (e) => { if (e.target.id === 'modal') fechar(); });
+tab(); renderFooter();
+</script></body></html>

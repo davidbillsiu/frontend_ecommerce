@@ -1,0 +1,38 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Meus pedidos — CasaNobre</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="css/style.css"><script src="js/config.js"></script><script src="js/app.js"></script></head><body>
+<main class="container" style="max-width:900px">
+  <h1 style="margin-top:24px">Meus pedidos</h1><div id="lista"><div class="loading">Carregando…</div></div>
+</main>
+<div class="modal-bg" id="m"><div class="modal" style="max-width:480px"><h3>Avaliar produto</h3><p id="m-nome" class="hint"></p>
+  <div class="field"><label>Nota geral</label><select id="nota"><option value="5">★★★★★ (5)</option><option value="4">★★★★ (4)</option><option value="3">★★★ (3)</option><option value="2">★★ (2)</option><option value="1">★ (1)</option></select></div>
+  <div class="field" id="f-mont"><label>Facilidade de montagem</label><select id="nota-m"><option value="">Não se aplica</option><option>5</option><option>4</option><option>3</option><option>2</option><option>1</option></select></div>
+  <div class="field"><label>Comentário (opcional)</label><textarea id="coment" rows="3"></textarea></div>
+  <p class="hint">Sua avaliação será publicada após moderação.</p>
+  <button class="btn" onclick="enviarAval()">Enviar</button> <button class="btn sec" onclick="$('#m').classList.remove('open')">Cancelar</button></div></div>
+<script>
+if (exigirLogin()) carregar();
+renderHeader('pedidos');
+let aval = {};
+async function carregar() {
+  try {
+    const l = await api('/pedidos/meus-pedidos', { auth: true });
+    $('#lista').innerHTML = l.length ? l.map((p) => `<article class="panel">
+      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px"><div><b>${esc(p.numero_pedido)}</b> <span class="hint">· ${dataBR(p.criado_em)}</span></div><span class="status s-${p.status_pedido}">${STATUS[p.status_pedido]}</span></div>
+      ${p.itens.map((i) => `<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--line)"><span>${i.quantidade}× ${esc(i.variacao.produto.nome)} <span class="hint">(${esc(i.variacao.cor_acabamento)})${i.servico_montagem_contratado ? ' · com montagem' : ''}</span></span><span>${brl(i.preco_unitario_pago * i.quantidade)} ${p.status_pedido === 'entregue' ? `<button class="btn sec sm" onclick="abrirAval(${p.id},${i.variacao.produto.id},'${esc(i.variacao.produto.nome).replace(/'/g, '')}')">Avaliar</button>` : ''}</span></div>`).join('')}
+      <div class="hint" style="margin-top:8px">Subtotal ${brl(p.subtotal_produtos)} · Frete ${brl(p.valor_frete)} · Montagem ${brl(p.valor_montagem)} · Desconto − ${brl(p.valor_desconto)}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-top:6px"><b>Total ${brl(p.valor_total)}</b>
+        <span class="hint">Pagamento: ${esc(p.pagamentos[0]?.metodo?.replace('_', ' '))} (${esc(p.pagamentos[0]?.status_pagamento)})${p.entrega ? ` · Entrega: ${esc(p.entrega.status_entrega.replace('_', ' '))} · previsão ${dataBR(p.entrega.previsao_entrega)}` : ''}${p.entrega?.codigo_rastreio ? ` · rastreio ${esc(p.entrega.codigo_rastreio)}` : ''}</span>
+        ${['aguardando_pagamento', 'pago', 'em_separacao'].includes(p.status_pedido) ? `<button class="btn danger sm" onclick="cancelar(${p.id})">Cancelar pedido</button>` : ''}</div>
+      ${p.montagem ? `<div class="hint">Montagem: ${esc(p.montagem.status_montagem.replace('_', ' '))}${p.montagem.data_agendada ? ' · ' + dataBR(p.montagem.data_agendada) + ' (' + esc(p.montagem.turno || '') + ')' : ''}</div>` : ''}</article>`).join('')
+      : '<div class="empty">Você ainda não fez pedidos.<br><br><a class="btn" href="index.html">Ir às compras</a></div>';
+  } catch (e) { $('#lista').innerHTML = `<div class="alert err">${esc(e.message)}</div>`; }
+}
+async function cancelar(id) { if (!confirm('Cancelar este pedido? O estoque será devolvido.')) return; try { await api(`/pedidos/${id}/cancelar`, { method: 'PATCH', auth: true }); toast('Pedido cancelado', 'ok'); carregar(); } catch (e) { toast(e.message, 'err'); } }
+function abrirAval(pedido, produto, nome) { aval = { pedido, produto }; $('#m-nome').textContent = nome; $('#m').classList.add('open'); }
+async function enviarAval() {
+  try {
+    await api('/avaliacoes', { method: 'POST', auth: true, body: { pedido_id: aval.pedido, produto_id: aval.produto, nota_geral: Number($('#nota').value), nota_facilidade_montagem: $('#nota-m').value ? Number($('#nota-m').value) : null, comentario: $('#coment').value || null } });
+    $('#m').classList.remove('open'); toast('Avaliação enviada para moderação', 'ok');
+  } catch (e) { toast(e.message, 'err'); }
+}
+renderFooter();
+</script></body></html>

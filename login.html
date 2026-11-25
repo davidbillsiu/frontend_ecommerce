@@ -1,0 +1,27 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Entrar — CasaNobre</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="css/style.css"><script src="js/config.js"></script><script src="js/app.js"></script></head><body>
+<main class="container"><div class="panel auth-box">
+  <h1>Entrar</h1><p class="hint" id="aviso">Acesse sua conta para finalizar pedidos e acompanhar entregas.</p>
+  <form id="f" novalidate>
+    <div class="field"><label for="email">E-mail</label><input id="email" type="email" autocomplete="username" required></div>
+    <div class="field"><label for="senha">Senha</label><input id="senha" type="password" autocomplete="current-password" required></div>
+    <p class="err" id="erro" role="alert"></p>
+    <button class="btn block" id="btn">Entrar</button>
+  </form>
+  <p style="text-align:center;margin-top:14px">Ainda não tem conta? <a href="cadastro.html">Cadastre-se</a></p>
+  <p class="hint" style="text-align:center">Demo: cliente@moveis.com / Cliente@123 · admin@moveis.com / Admin@123</p>
+</div></main>
+<script>
+renderHeader('login');
+const next = new URLSearchParams(location.search).get('next');
+if (next) $('#aviso').textContent = 'Faça login para continuar.';
+$('#f').addEventListener('submit', async (e) => {
+  e.preventDefault(); $('#erro').textContent = ''; $('#btn').disabled = true;
+  try {
+    const r = await api('/login', { method: 'POST', body: { email: $('#email').value, senha: $('#senha').value } });
+    Sessao.salvar(r.token, r.usuario);
+    const destino = next && /^[a-z0-9_-]+\.html/i.test(next) ? next : (['admin', 'logistica'].includes(r.usuario.tipo_perfil) ? 'admin.html#vendas' : 'index.html');
+    location.href = destino;
+  } catch (err) { $('#erro').textContent = err.message; $('#btn').disabled = false; }
+});
+renderFooter();
+</script></body></html>
