@@ -2,4 +2,4 @@
 // Ex.: window.API_URL = "https://moveis-api-production.up.railway.app";
 window.API_URL = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
   ? 'http://localhost:3000'
-  : 'https://SEU-BACKEND.up.railway.app';
+  : 'backendecomerce-production-33f14266.up.railway.app';
