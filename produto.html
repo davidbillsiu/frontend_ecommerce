@@ -12,7 +12,7 @@ function montar() {
   $('#conteudo').innerHTML = `
   <p class="hint" style="margin-top:16px"><a href="index.html">Loja</a> › ${esc(P.categoria.nome)} › ${esc(P.nome)}</p>
   <div class="detail">
-    <div class="main"><img src="${esc(img)}" alt="${esc(P.nome)}"></div>
+    <div class="main"><img src="${esc(imgSrc(img))}" alt="${esc(P.nome)}" onerror="imgErro(this)"></div>
     <div>
       <span class="hint">${esc(P.marca.nome)} · ${P.ambientes.map((a) => esc(a.nome)).join(', ')}</span>
       <h1>${esc(P.nome)}</h1>

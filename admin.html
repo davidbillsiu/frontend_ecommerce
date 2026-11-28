@@ -67,7 +67,7 @@ async function produtos() {
   catalogo = { categorias: cats, marcas, ambientes: ambs }; window._prods = lista;
   $('#view').innerHTML = `<section class="panel"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><h3 style="margin:0">Produtos cadastrados (${lista.length})</h3><button class="btn" onclick="formProduto()">+ Novo produto</button></div>
   <div class="table-wrap" style="margin-top:12px"><table><thead><tr><th></th><th>Nome</th><th>Categoria</th><th>Marca</th><th>A partir de</th><th>Estoque</th><th>Ativo</th><th>Ações</th></tr></thead><tbody>
-  ${lista.map((p) => `<tr><td><img src="${esc(p.imagem_principal || '')}" alt="" style="width:56px;border-radius:6px;background:#efe9e1" onerror="this.style.visibility='hidden'"></td><td><b>${esc(p.nome)}</b><div class="hint">${p.variacoes.length} variação(ões)</div></td><td>${esc(p.categoria.nome)}</td><td>${esc(p.marca.nome)}</td><td>${brl(p.preco_min)}</td><td>${p.estoque_total}</td>
+  ${lista.map((p) => `<tr><td><img src="${esc(imgSrc(p.imagem_principal))}" alt="" style="width:56px;height:56px;object-fit:contain;border-radius:6px;background:#fff" onerror="imgErro(this)"></td><td><b>${esc(p.nome)}</b><div class="hint">${p.variacoes.length} variação(ões)</div></td><td>${esc(p.categoria.nome)}</td><td>${esc(p.marca.nome)}</td><td>${brl(p.preco_min)}</td><td>${p.estoque_total}</td>
   <td><span class="status ${p.ativo ? 's-entregue' : 's-cancelado'}">${p.ativo ? 'Sim' : 'Não'}</span></td>
   <td style="white-space:nowrap"><button class="btn sm sec" onclick="formProduto(${p.id})">Editar</button> <button class="btn sm sec" onclick="alternar(${p.id},${!p.ativo})">${p.ativo ? 'Inativar' : 'Ativar'}</button> <button class="btn sm danger" onclick="excluir(${p.id})">Excluir</button></td></tr>`).join('')}</tbody></table></div></section>`;
 }
@@ -103,7 +103,7 @@ function formProduto(id) {
     <h3 style="margin-top:14px">Variações (SKU)</h3><div id="vars">${vars.map(linhaVar).join('')}</div>
     <button type="button" class="btn sm sec" onclick="$('#vars').insertAdjacentHTML('beforeend', linhaVar())">+ Adicionar variação</button>
     <p class="err" id="p-erro"></p>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px"><button class="btn">${id ? 'Salvar (PUT)' : 'Cadastrar (POST)'}</button>${id ? `<button type="button" class="btn sec" onclick="salvarParcial(${id})">Salvar só ativo/garantia (PATCH)</button>` : ''}<button type="button" class="btn sec" onclick="fechar()">Fechar</button></div></form>`);
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px"><button class="btn">${id ? 'Salvar alterações' : 'Cadastrar produto'}</button>${id ? `<button type="button" class="btn sec" onclick="salvarParcial(${id})">Salvar só ativo e garantia</button>` : ''}<button type="button" class="btn sec" onclick="fechar()">Fechar</button></div></form>`);
   $('#fp').onsubmit = (e) => { e.preventDefault(); salvarProduto(id); };
 }
 async function salvarProduto(id) {
@@ -118,7 +118,7 @@ async function salvarProduto(id) {
     toast('Produto salvo', 'ok'); fechar(); tab();
   } catch (e) { $('#p-erro').textContent = e.message; }
 }
-async function salvarParcial(id) { try { await call('/produtos/' + id, { method: 'PATCH', body: { ativo: $('#p-ativo').checked, garantia_meses: Number($('#p-gar').value) } }); toast('Atualizado (PATCH)', 'ok'); fechar(); tab(); } catch (e) { $('#p-erro').textContent = e.message; } }
+async function salvarParcial(id) { try { await call('/produtos/' + id, { method: 'PATCH', body: { ativo: $('#p-ativo').checked, garantia_meses: Number($('#p-gar').value) } }); toast('Produto atualizado', 'ok'); fechar(); tab(); } catch (e) { $('#p-erro').textContent = e.message; } }
 async function alternar(id, ativo) { try { await call('/produtos/' + id, { method: 'PATCH', body: { ativo } }); tab(); } catch (e) { toast(e.message, 'err'); } }
 async function excluir(id) { if (!confirm('Excluir produto? Se já houver vendas, ele será apenas inativado.')) return; try { const r = await call('/produtos/' + id, { method: 'DELETE' }); toast(r.mensagem, 'ok'); tab(); } catch (e) { toast(e.message, 'err'); } }
 

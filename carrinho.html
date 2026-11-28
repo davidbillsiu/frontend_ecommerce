@@ -27,7 +27,7 @@ function desenhar() {
   if (!l.length) { $('#itens').innerHTML = '<div class="empty">Seu carrinho está vazio.<br><br><a class="btn" href="index.html">Continuar comprando</a></div>'; $('#resumo').style.display = 'none'; return; }
   $('#resumo').style.display = '';
   $('#itens').innerHTML = l.map((i) => `<div class="item">
-    <img src="${esc(i.imagem)}" alt="">
+    <img src="${esc(imgSrc(i.imagem))}" alt="" onerror="imgErro(this)">
     <div><b>${esc(i.nome)}</b><div class="hint">${esc(i.cor)} · ${brl(i.preco)} un.</div>
       ${i.requer_montagem ? `<label class="check" style="font-size:.82rem;margin-top:6px"><input type="checkbox" ${i.montagem ? 'checked' : ''} onchange="montagem(${i.variacao_sku_id},this.checked)"> Montagem (+ ${brl(MONTAGEM_VALOR)}/un.)</label>` : ''}</div>
     <div class="iright" style="text-align:right"><div class="qty"><button onclick="qtd(${i.variacao_sku_id},-1)">−</button><span>${i.quantidade}</span><button onclick="qtd(${i.variacao_sku_id},1)">+</button></div>

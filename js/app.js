@@ -116,6 +116,24 @@ async function buscarCEP(cep, { logradouro, bairro, cidade, estado, numero }) {
   } catch { toast('Falha ao consultar o ViaCEP.', 'err'); return false; }
 }
 
+/* ---- fotos: usa .jpg local; se não existir tenta png, webp, jpeg e por fim a ilustração .svg ---- */
+const EXTS = ['jpg', 'png', 'webp', 'jpeg', 'svg'];
+const ehLocal = (u) => u && !/^(https?:)?\/\//.test(u) && !u.startsWith('data:');
+function imgSrc(url) { // caminho salvo no banco -> tenta primeiro a foto .jpg de mesmo nome
+  if (!url) return '';
+  return ehLocal(url) ? url.replace(/\.(png|jpe?g|webp|svg)(\?.*)?$/i, '') + '.jpg' : url;
+}
+function imgErro(el) {
+  const src = el.getAttribute('src') || '';
+  if (!ehLocal(src)) { el.style.visibility = 'hidden'; return; }
+  const base = src.replace(/\.(png|jpe?g|webp|svg)(\?.*)?$/i, '');
+  const tentadas = (el.dataset.tentadas || src.split('.').pop().toLowerCase()).split(',');
+  const prox = EXTS.find((e) => !tentadas.includes(e));
+  if (!prox) { el.style.visibility = 'hidden'; return; }
+  el.dataset.tentadas = [...tentadas, prox].join(',');
+  el.src = `${base}.${prox}`;
+}
+
 /* ---- card de produto ---- */
 function cardProduto(p) {
   const esgotado = p.estoque_total <= 0;
@@ -123,7 +141,7 @@ function cardProduto(p) {
   const unica = p.variacoes.length === 1;
   return `<article class="pcard">
     <a class="img" href="produto.html?id=${p.id}">
-      <img loading="lazy" src="${esc(p.imagem_principal || '')}" alt="${esc(p.nome)}" onerror="this.style.visibility='hidden'">
+      <img loading="lazy" src="${esc(imgSrc(p.imagem_principal))}" alt="${esc(p.nome)}" onerror="imgErro(this)">
       ${esgotado ? '<span class="badge">Esgotado</span>' : desc ? `<span class="badge off">-${desc}%</span>` : ''}
     </a>
     <div class="body">
